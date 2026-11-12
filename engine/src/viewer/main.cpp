@@ -48,7 +48,25 @@
 #include "platform/vita_import_ui.hpp"
 #include "platform/atomic_file.hpp"
 #include <SDL3/SDL.h>
+#ifdef SDL_PLATFORM_IOS
+#include "platform/ios_fonts.hpp"
+#endif
 #include <SDL3/SDL_main.h>
+#ifdef SDL_PLATFORM_IOS
+#include <string>
+// (iOS: the first of these system fonts there is, as a file - platform/ios_fonts.hpp; the iPad
+// release drew its text with iOS's own fonts)
+static std::string iosFont(std::initializer_list<const char*> names) {
+    char* pref = SDL_GetPrefPath("DuIslingr", "CR2-U");
+    const std::string cache = std::string(pref ? pref : "") + "fonts/";
+    SDL_free(pref);
+    for (const char* n : names) {
+        const std::string f = crios::systemFontFile(n, cache);
+        if (!f.empty()) return f;
+    }
+    return {};
+}
+#endif
 
 #include <algorithm>
 #include <cctype>
@@ -7018,12 +7036,20 @@ struct Viewer {
         const char* fb = std::getenv("CR2_FONT_FALLBACK");
         const char* windir = std::getenv("WINDIR");
         const std::string winFonts = std::string(windir ? windir : "C:/Windows") + "/Fonts/";
+#ifdef SDL_PLATFORM_IOS
+        // (iOS: Japanese, Chinese - the simplified forms the traditional face lacks -, Korean)
+        std::vector<std::string> fallbacks{fb ? std::string(fb) : std::string(), iosFont({"HiraginoSans-W6", "HiraKakuProN-W6"}),
+                                           iosFont({"PingFangSC-Semibold", "PingFangSC-Regular"}),
+                                           iosFont({"AppleSDGothicNeo-Bold", "AppleSDGothicNeo-Regular"})};
+        if (false)
+#else
         std::vector<std::string> fallbacks{cr2::TextRasterizer::firstFont({fb ? fb : "", "/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.ttc",
                                                                            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
                                                                            "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Bold.ttc",
                                                                            "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
                                                                            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"})};
         if (fallbacks[0].empty())
+#endif
             fallbacks = {cr2::TextRasterizer::firstFont({winFonts + "malgunbd.ttf", winFonts + "malgun.ttf",
                                                          "/System/Library/Fonts/AppleSDGothicNeo.ttc"}),
                          cr2::TextRasterizer::firstFont({winFonts + "msyhbd.ttc", winFonts + "msyh.ttc",
@@ -10383,7 +10409,9 @@ struct Viewer {
             const std::string jn = j < bg.joints.size() ? bg.joints[j] : "";
             vm.hidden = false;
             for (int k = 0; k < 23; ++k)
-                if (jn == "GEO_panel0" + std::to_string(kPanels[k])) vm.hidden = !game.flag(kPanelFlags[k]);
+                // (the panels are GRP_question's covers over the tree painted on hud_bgTop / hud_bgLow:
+                // drawn while their part isn't opened, lifted once its flag is set)
+                if (jn == "GEO_panel0" + std::to_string(kPanels[k])) vm.hidden = game.flag(kPanelFlags[k]);
             for (int k = 0; k < 4; ++k)
                 if (jn == "GEO_chapter" + std::to_string(kChapters[k])) vm.hidden = game.flag(kChapterFlags[k]);
         }
@@ -13748,6 +13776,9 @@ int main(int argc, char** argv) {
         std::string fp = cr2::TextRasterizer::firstFont({fontPath, envFont ? envFont : "", dataDir + "font/TBGoPro-Bold.otf"});
         std::vector<uint8_t> apkFont;
         std::string apkFontFrom;
+#ifdef SDL_PLATFORM_IOS
+        if (fp.empty()) fp = iosFont({"PingFangTC-Semibold", "PingFangTC-Medium", "PingFangTC-Regular", "HelveticaNeue-Bold", "Helvetica-Bold"});
+#endif
         if (fp.empty() && !cr2::androidFile(data, "assets/00001", apkFont, &apkFontFrom)) {
             const char* windir = SDL_getenv("WINDIR");
             const std::string winFonts = std::string(windir ? windir : "C:/Windows") + "/Fonts/";
