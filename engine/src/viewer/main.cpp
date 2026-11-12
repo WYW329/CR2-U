@@ -7365,13 +7365,31 @@ struct Viewer {
         ViewFigure fig;
         std::vector<std::string> joints, materials;
         bool loaded = false;
+        int wide = 0; // (a screen wider than 3:2, in battle: -1 kept to its left edge, 1 its right - see wideShift)
     };
+    // (the battle's HUD on a screen wider than 3:2: its left parts - the party's windows, the break
+    // and charge gauges - out to the screen's left, the commands, the lists, their help and Back to
+    // its right, as far as the 3:2 layout's sides; a part's own joints - its text, numbers, taps,
+    // the parts set at them - go with it)
+    static int wideSide(const std::string& name) {
+        static const std::map<std::string, int> kSide = {
+            {"pc01win", -1}, {"pc02win", -1}, {"brkwin", -1}, {"brkgauge", -1}, {"brkinfo", -1}, {"chggauge", -1},
+            {"btlbtn", 1}, {"btlback", 1}, {"scrlbar", 1}, {"scrlmtr_per", 1}, {"scrllow", 1}, {"scrltop", 1},
+            {"scrlbtn", 1}, {"scrlwin", 1}, {"scrlback", 1}, {"backcsr", 1}, {"tabwin_io", 1}};
+        const auto it = kSide.find(name);
+        return it == kSide.end() ? 0 : it->second;
+    }
+    float wideShift() const {
+        const float k = std::min(float(screenW) / 0.96f, float(screenH) / 0.64f);
+        return std::max(0.0f, float(screenW) / k * 0.5f - 0.48f);
+    }
     std::map<std::string, UiFig> uiFigs;
     bool loadingUi = false; // (uiFig loading its figure: left unsmoothed)
     UiFig& uiFig(const std::string& name) {
         UiFig& u = uiFigs[name];
         if (!u.loaded) {
             u.loaded = true;
+            u.wide = wideSide(name);
             std::string err;
             const float keep = time;
             loadingUi = true; // (the menus' parts as built: Smooth Models is the world's)
@@ -7384,6 +7402,7 @@ struct Viewer {
         return u;
     }
     void poseUi(UiFig& u, const std::string& anim, float t, bool loop = false) {
+        if (u.wide && battleMode) u.fig.place.m[3] = float(u.wide) * wideShift(); // (its place as set - 0 across - then out to its side)
         // (the figure's own animation - SetParameterDataBase's, alone in slot 0 - is absolute;
         // the animators added beside it relative)
         u.fig.absolute = anim + ".geom" == u.fig.name;
