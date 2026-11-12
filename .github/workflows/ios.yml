@@ -24,12 +24,19 @@ jobs:
             -DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=ON \
             -DCMAKE_DISABLE_FIND_PACKAGE_Freetype=ON \
             -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON \
-            -DCMAKE_DISABLE_FIND_PACKAGE_SDL3=ON
+            -DCMAKE_DISABLE_FIND_PACKAGE_SDL3=ON > configure.log 2>&1 || { tail -100 configure.log; grep -E 'CMake Error|error' -A3 configure.log | head -40 | sed 's/^/::error::/'; exit 1; }
+          tail -40 configure.log
 
       - name: Build
         run: |
           set -o pipefail
-          cmake --build build-ios --config Release --target cr2view -- -sdk iphoneos -quiet 2>&1 | tail -200
+          if ! cmake --build build-ios --config Release --target cr2view -- -sdk iphoneos -quiet > build.log 2>&1; then
+            tail -200 build.log
+            # (the errors as annotations: readable on the run's page and from the API without signing in)
+            grep -E 'error:|Error |fatal|undefined symbol|ld: ' build.log | sort -u | head -40 | sed 's/^/::error::/'
+            exit 1
+          fi
+          tail -50 build.log
 
       - name: Package
         run: |
