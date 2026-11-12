@@ -3024,6 +3024,7 @@ struct Viewer {
             if (!inputScript.empty() && inputScript.front() == "fast" && uiClock >= fastUntil && (ev->fastForwardShown() || ev->skipButtonShown()))
                 inputScript.pop_front(), fastUntil = uiClock + 2.0f; // (each two seconds of it, one after the other)
             ev->fastForward = fastHeld || uiClock < fastUntil;
+            ev->language = optionLanguage; // (the field's and the vistas' talks too - the options' language, as it is now)
         }
         if (!inputScript.empty() && (inputScript.front() == "yes" || inputScript.front() == "no") && yesNoShown() &&
             activeEvents()->yesNoAge() > 0.5f) { // (--input: an event's yes / no)
