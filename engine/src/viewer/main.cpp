@@ -6915,6 +6915,7 @@ struct Viewer {
         poseEventModels(*event);
     }
 
+    std::set<std::string> missingMotions; // (each logged once)
     void poseEventModels(cr2::EventRuntime& ev) {
         std::vector<cr2::EventModel>& models = ev.scene().models();
         for (size_t i = 0; i < models.size() && i < eventFigures.size(); ++i) {
@@ -6924,11 +6925,20 @@ struct Viewer {
             // its motion (ChangeAnimator: relative to the base pose), else its own animation alone
             // in slot 0 (absolute: an effect's)
             const std::string want = (m.animation.empty() ? m.figure : m.animation) + ".anim";
-            const auto it = std::find(f.anims.begin(), f.anims.end(), want);
-            if (it != f.anims.end() && (!f.animLoaded || f.anims[f.animIndex] != want)) {
+            auto sameName = [](const std::string& a, const std::string& b) {
+                return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) { return std::tolower((unsigned char)x) == std::tolower((unsigned char)y); });
+            };
+            const auto it = std::find_if(f.anims.begin(), f.anims.end(), [&](const std::string& n) { return sameName(n, want); });
+            if (it != f.anims.end() && (!f.animLoaded || !sameName(f.anims[f.animIndex], want))) {
                 const float keep = time;
                 loadAnim(f, size_t(it - f.anims.begin()));
                 time = keep;
+            }
+            // (a motion it hasn't: the one before held at its end - not replayed from its start, over
+            // and over, as though it were the missing one)
+            const bool missing = it == f.anims.end() && !m.animation.empty();
+            if (missing && missingMotions.insert(m.figure + "/" + want).second) {
+                SDL_Log("event: %s has no motion %s - held where it is", m.figure.c_str(), want.c_str());
             }
             f.absolute = m.animation.empty();
             // a ChangeAnimatorBlend's fade from the motion before
@@ -6962,7 +6972,7 @@ struct Viewer {
             }
             f.place = ev.scene().placeAt(m, eventLead());
             f.tint[3] = m.alpha(eventLead()); // (ChangeAlpha)
-            pose(f, m.animTime + eventLead(), m.loop);
+            pose(f, missing ? 1e6f : m.animTime + eventLead(), m.loop && !missing);
         }
     }
 
