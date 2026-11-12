@@ -26,7 +26,9 @@ function(cr_ios_app target)
         XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY ""
         XCODE_ATTRIBUTE_ENABLE_BITCODE "NO"
         XCODE_ATTRIBUTE_GCC_GENERATE_DEBUGGING_SYMBOLS "YES")
-    target_sources(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/platform/ios_fonts.cpp) # (the system's fonts for FreeType)
+    target_sources(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/platform/ios_fonts.cpp # (the system's fonts for FreeType)
+                                     ${CMAKE_CURRENT_SOURCE_DIR}/src/platform/ios_cloud.mm) # (the saves' backup - cloud.txt)
+    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/src/platform/ios_cloud.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
     target_link_libraries(${target} PRIVATE "-framework CoreText" "-framework CoreGraphics" "-framework UIKit" "-framework Foundation" "-framework QuartzCore"
         "-framework GameController" "-framework AVFoundation" "-framework AudioToolbox" "-framework CoreAudio"
         "-framework CoreMotion" "-framework CoreHaptics" "-framework Metal")

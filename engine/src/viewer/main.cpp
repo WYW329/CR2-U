@@ -50,6 +50,7 @@
 #include <SDL3/SDL.h>
 #ifdef SDL_PLATFORM_IOS
 #include "platform/ios_fonts.hpp"
+#include "platform/ios_cloud.hpp"
 #endif
 #include <SDL3/SDL_main.h>
 #ifdef SDL_PLATFORM_IOS
@@ -67,6 +68,13 @@ static std::string iosFont(std::initializer_list<const char*> names) {
     return {};
 }
 #endif
+// (a save written: iOS backs the profile's saves up when a cloud.txt names a server - platform/ios_cloud.hpp)
+static void cloudSaved() {
+#ifdef SDL_PLATFORM_IOS
+    char* pref = SDL_GetPrefPath("DuIslingr", "CR2-U");
+    if (pref) crios::cloudBackup(pref), SDL_free(pref);
+#endif
+}
 
 #include <algorithm>
 #include <cctype>
@@ -365,6 +373,7 @@ struct Viewer {
         if (!keepData.empty()) text += "data=" + keepData + "\n";
         std::string error;
         if (!crstorage::replaceFile(savePath(settingsFile()), text, &error)) SDL_Log("settings: %s", error.c_str());
+        else cloudSaved();
     }
     // The settings onto the device, the window and the textures (each only as it changes)
     void applySettings() {
@@ -3539,6 +3548,7 @@ struct Viewer {
         text += "\n";
         std::string error;
         if (!crstorage::replaceFile(savePath("system.txt"), text, &error)) SDL_Log("system save failed: %s", error.c_str());
+        else cloudSaved();
     }
     // Fresh game / retry boundary. System settings are applied by newGame;
     // save loading or explicit carryOver runs afterward and supplies its own progress.
@@ -9123,6 +9133,7 @@ struct Viewer {
         else if (kind == 1) writeSave("cont.txt");
         else if (kind == 3) writeSystem(); // (SaveSystem: the system data at once)
         else if (!crstorage::replaceFile(savePath("cont.txt"), "")) SDL_Log("could not clear continue data"); // (DeleteCont: none to continue)
+        else cloudSaved();
     }
     bool writeSave(const char* file = "save1.txt") {
         std::map<std::string, std::string> extra;
@@ -9139,6 +9150,7 @@ struct Viewer {
         if (!ok) SDL_Log("save failed: %s", error.c_str());
         SDL_Log("save: %s %s", path.c_str(), ok ? "written" : "not written");
         if (ok && std::strcmp(file, "save1.txt") == 0) writeSystem(); // (SaveConfirmationMenu: Cr3Util_Save_SystemData too)
+        else if (ok) cloudSaved();
         return ok;
     }
     void restoreFieldPosition(const float* position, float yaw) {
@@ -13529,6 +13541,15 @@ int main(int argc, char** argv) {
                              "[--renderer vulkan|opengl] [--capture out.bmp]\n");
         return 2;
     }
+#ifdef SDL_PLATFORM_IOS
+    { // the saves' backup (Documents/cloud.txt): a fresh install's taken from the server before the settings and saves are read
+        const char* docs = SDL_GetUserFolder(SDL_FOLDER_DOCUMENTS);
+        char* pref = SDL_GetPrefPath("DuIslingr", "CR2-U");
+        if (docs && pref && capture.empty() && crios::cloudConfigure(std::string(docs) + (std::string(docs).back() == '/' ? "" : "/") + "cloud.txt"))
+            crios::cloudRestoreIfEmpty(pref);
+        SDL_free(pref);
+    }
+#endif
     Viewer v;
     { // CR2-U's settings (settings.ini; not for captures and exports), the command line's flags over them
         auto given = [&](const char* flag) {
