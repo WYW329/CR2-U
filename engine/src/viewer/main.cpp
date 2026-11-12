@@ -72,7 +72,11 @@ static std::string iosFont(std::initializer_list<const char*> names) {
 static void cloudSaved() {
 #ifdef SDL_PLATFORM_IOS
     char* pref = SDL_GetPrefPath("DuIslingr", "CR2-U");
-    if (pref) crios::cloudBackup(pref), SDL_free(pref);
+    if (pref) {
+        if (const char* docs = SDL_GetUserFolder(SDL_FOLDER_DOCUMENTS)) crios::savesMirror(pref, docs); // (Documents/saves/: seen in the Files app)
+        crios::cloudBackup(pref);
+        SDL_free(pref);
+    }
 #endif
 }
 
@@ -13542,11 +13546,17 @@ int main(int argc, char** argv) {
         return 2;
     }
 #ifdef SDL_PLATFORM_IOS
-    { // the saves' backup (Documents/cloud.txt): a fresh install's taken from the server before the settings and saves are read
+    { // before the settings and saves are read: saves put in Documents/import/ taken in, else (a fresh
+      // install with a Documents/cloud.txt) the server's backup; the saves then mirrored to Documents/saves/
         const char* docs = SDL_GetUserFolder(SDL_FOLDER_DOCUMENTS);
         char* pref = SDL_GetPrefPath("DuIslingr", "CR2-U");
-        if (docs && pref && capture.empty() && crios::cloudConfigure(std::string(docs) + (std::string(docs).back() == '/' ? "" : "/") + "cloud.txt"))
-            crios::cloudRestoreIfEmpty(pref);
+        if (docs && pref && capture.empty()) {
+            const bool cloud = crios::cloudConfigure(std::string(docs) + (std::string(docs).back() == '/' ? "" : "/") + "cloud.txt");
+            const int imported = crios::savesImport(docs, pref);
+            if (!imported && cloud) crios::cloudRestoreIfEmpty(pref);
+            crios::savesMirror(pref, docs);
+            if (imported && cloud) crios::cloudBackup(pref); // (the imported saves become the backup too)
+        }
         SDL_free(pref);
     }
 #endif

@@ -16,4 +16,12 @@ void cloudBackup(const std::string& profileDir);
 // a fresh install's: the server's saves into `profileDir` (blocking, up to a minute and a half -
 // a sleeping free server takes most of that to wake); true when some were written
 bool cloudRestoreIfEmpty(const std::string& profileDir);
+
+// The saves where the Files app shows them: after each save, the profile's save files copied to
+// Documents/saves/ (to look at, copy out, keep)
+void savesMirror(const std::string& profileDir, const std::string& docsDir);
+// On a start: save files put in Documents/import/ replace the profile's (each old one kept as
+// <name>.bak first), then are deleted there so the next start doesn't take them again. The number
+// taken in.
+int savesImport(const std::string& docsDir, const std::string& profileDir);
 }

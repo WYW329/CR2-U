@@ -158,4 +158,48 @@ bool cloudRestoreIfEmpty(const std::string& profileDir) {
     SDL_Log("cloud: %d save files restored from the server", written);
     return written > 0;
 }
+
+namespace {
+bool copyFile(const std::string& from, const std::string& to) {
+    std::string bytes;
+    if (!readFile(from, bytes)) return false;
+    const std::string part = to + ".part";
+    SDL_IOStream* f = SDL_IOFromFile(part.c_str(), "wb");
+    if (!f) return false;
+    bool ok = SDL_WriteIO(f, bytes.data(), bytes.size()) == bytes.size();
+    ok = SDL_CloseIO(f) && ok;
+    if (ok) SDL_RemovePath(to.c_str()); // (a rename doesn't replace on every system)
+    return ok && SDL_RenamePath(part.c_str(), to.c_str());
+}
+std::string slash(std::string d) {
+    if (!d.empty() && d.back() != '/') d += '/';
+    return d;
+}
+} // namespace
+
+void savesMirror(const std::string& profileDir, const std::string& docsDir) {
+    const std::string out = slash(docsDir) + "saves/";
+    SDL_CreateDirectory(out.c_str());
+    for (const char* name : kFiles)
+        if (SDL_GetPathInfo((profileDir + name).c_str(), nullptr)) copyFile(profileDir + name, out + name);
+}
+
+int savesImport(const std::string& docsDir, const std::string& profileDir) {
+    const std::string in = slash(docsDir) + "import/";
+    int taken = 0;
+    SDL_CreateDirectory(profileDir.c_str());
+    for (const char* name : kFiles) {
+        const std::string from = in + name, to = profileDir + name;
+        if (!SDL_GetPathInfo(from.c_str(), nullptr)) continue;
+        if (SDL_GetPathInfo(to.c_str(), nullptr)) copyFile(to, to + ".bak"); // (the one replaced, kept)
+        if (copyFile(from, to)) {
+            SDL_RemovePath(from.c_str());
+            ++taken;
+            SDL_Log("saves: %s imported (the old one kept as %s.bak)", name, name);
+        } else {
+            SDL_Log("saves: could not import %s", name);
+        }
+    }
+    return taken;
+}
 } // namespace crios
