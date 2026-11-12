@@ -3850,6 +3850,45 @@ struct Viewer {
         bool active = false;
     } showMoves[2];
 
+    // where `actor` strikes `target` from: its aPos joint; one of the others for the same place when
+    // this battle's layout lacks that one (a pair's for a solo's, the other attacker's, the place's
+    // centre - "sC" as "s"); else short of the target, on the line from the attacker (so the attack
+    // still runs at it, rather than swinging where the attacker stands)
+    bool strikePlace(int actor, int target, cr2::Mat34& out) {
+        const std::string name = aposName(actor, target);
+        if (aposPlace(name, out)) return true;
+        std::vector<std::string> tries;
+        auto unitKey = [&](int f) { const int u = f >= 0 && f < 5 ? fighterUnit[f] : -1; return u >= 0 && battleUnits[size_t(u)].position.size() > 5 ? battleUnits[size_t(u)].position.substr(5) : std::string(); };
+        if (actor < 2) {
+            std::string k = unitKey(target);
+            for (const std::string& key : {k, k.size() > 1 ? k.substr(0, k.size() - 1) : k, std::string(k.empty() ? "" : k.substr(0, 1))})
+                for (const char* who : {"pSoloA", "pSoloB", "pPairA", "pPairB"}) tries.push_back("aPos_" + key + who);
+        } else {
+            std::string mk = unitKey(actor);
+            for (const std::string& key : {mk, std::string(mk.empty() ? "" : mk.substr(0, 1))})
+                for (const char* who : {"pSoloA", "pSoloB", "pPair"}) tries.push_back("aPos_" + std::string(who) + key);
+        }
+        for (const std::string& t : tries)
+            if (t != name && aposPlace(t, out)) {
+                SDL_Log("battle: no %s here - %s instead", name.c_str(), t.c_str());
+                return true;
+            }
+        const int au = actor >= 0 && actor < 5 ? fighterUnit[actor] : -1, tu = target >= 0 && target < 5 ? fighterUnit[target] : -1;
+        if (au < 0 || tu < 0) return false;
+        const cr2::Mat34& a = battleUnits[size_t(au)].fig.place;
+        const cr2::Mat34& t = battleUnits[size_t(tu)].fig.place;
+        const float dx = a.m[3] - t.m[3], dz = a.m[11] - t.m[11], d = std::sqrt(dx * dx + dz * dz);
+        if (d < 1e-3f) return false;
+        out = a;
+        for (int c = 0; c < 3; ++c) {
+            const float l = std::sqrt(out.m[c] * out.m[c] + out.m[4 + c] * out.m[4 + c] + out.m[8 + c] * out.m[8 + c]);
+            if (l > 0) out.m[c] /= l, out.m[4 + c] /= l, out.m[8 + c] /= l;
+        }
+        const float keep = std::min(d * 0.35f, 1.2f); // (a stride short of it)
+        out.m[3] = t.m[3] + dx / d * keep, out.m[11] = t.m[11] + dz / d * keep, out.m[7] = t.m[7];
+        SDL_Log("battle: no %s here - short of the target", name.c_str());
+        return true;
+    }
     // the battleapos joint `name`'s place (false: none)
     bool aposPlace(const std::string& name, cr2::Mat34& out) {
         const int j = battleApos.joint(cr2::nameHash(name.c_str()));
@@ -5592,7 +5631,7 @@ struct Viewer {
             cr2::motionTimes(bu.figure, cr2::motionIndex(motion), t);
             Move& m = showMoves[slot++];
             m.unit = u;
-            if (target >= 0 && t.moveStart >= 0 && t.moveEnd >= t.moveStart && aposPlace(aposName(f, target), m.to)) {
+            if (target >= 0 && t.moveStart >= 0 && t.moveEnd >= t.moveStart && strikePlace(f, target, m.to)) {
                 m.active = true;
                 m.start = t.moveStart + delay, m.end = t.moveEnd + delay;
                 m.back = t.move2Start + delay, m.backEnd = t.move2End + delay;
@@ -6247,7 +6286,7 @@ struct Viewer {
             ++scene.hits;
             break;
         case kSpecialDash: // (SetMovePosition: to its aPos by the target over the time)
-            if (actorUnit && scene.target >= 0 && aposPlace(aposName(scene.actor, scene.target), showMoves[0].to)) {
+            if (actorUnit && scene.target >= 0 && strikePlace(scene.actor, scene.target, showMoves[0].to)) {
                 Move& m = showMoves[0];
                 m.unit = fighterUnit[scene.actor], m.active = true;
                 m.start = st.time, m.end = st.time + std::max(st.f[0], 0.0f), m.back = -1, m.backEnd = -1;
