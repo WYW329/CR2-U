@@ -2497,15 +2497,20 @@ struct Viewer {
         }
         drawScene(frameW, frameH); // (the scene: all of the frame)
         dev->endScene();
-        dev->setViewport(float(screenX), float(screenY), float(screenW), float(screenH)); // (the UI: inside the safe area)
+        // (the UI: laid out inside the safe area, drawn over the whole frame - see UiFit)
+        uiFit.sx = float(screenW) / float(std::max(frameW, 1)), uiFit.sy = float(screenH) / float(std::max(frameH, 1));
+        uiFit.ox = ((float(screenX) + float(screenW) * 0.5f) - (float(frameX) + float(frameW) * 0.5f)) * 2.0f / float(std::max(frameW, 1));
+        uiFit.oy = -((float(screenY) + float(screenH) * 0.5f) - (float(frameY) + float(frameH) * 0.5f)) * 2.0f / float(std::max(frameH, 1));
+        dev->setViewport(float(frameX), float(frameY), float(frameW), float(frameH));
         drawEventUi(); // (the vista's, or the field's events')
+        uiFit = UiFit();
     }
     // a quad over the whole frame - a fade, a dimming -, not the UI's screen alone; the UI's viewport back after it
     void fullFrameQuad(const cr2::Texture& t, const float* v, const float* rgba) {
         static const Mat4 id = cr2::mat4Identity();
         dev->setViewport(float(frameX), float(frameY), float(frameW), float(frameH));
         dev->drawQuad(t, v, id.data(), rgba);
-        dev->setViewport(float(screenX), float(screenY), float(screenW), float(screenH));
+        dev->setViewport(float(frameX), float(frameY), float(frameW), float(frameH)); // (the UI's too: UiFit)
     }
     // The display's safe area in a frame of fw x fh: SDL lays the window out under a camera hole
     // (LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS), so the scene can fill all of it while the UI stays
@@ -3664,6 +3669,7 @@ struct Viewer {
         }
         battleCamera = battle.camera;
         battleClock = 0;
+        damageShown.clear(); // (the last battle's numbers: kept, they came back once this one's clock reached their times)
         battleMode = true, msgOpen = false, msgCloseAt = -1;
         fieldMode = eventMode = false;
         dev->resetHistory();
@@ -7083,11 +7089,16 @@ struct Viewer {
 
     // the interface's projection over a w x h screen: UI units to clip space (z: the camera's
     // near / far, 2.56 either way)
+    // (the UI drawn over the whole frame, its screen's clip space placed in the frame's: what
+    // slides in from past the safe area's edge shows rather than being cut off there)
+    struct UiFit { float sx = 1, sy = 1, ox = 0, oy = 0; };
+    static inline UiFit uiFit;
     static Mat4 uiProjection(int w, int h) {
         const float k = std::min(float(w) / 0.96f, float(h) / 0.64f); // pixels a unit
         Mat4 m = cr2::mat4Identity();
-        m[0] = k / (float(w) * 0.5f);
-        m[5] = k / (float(h) * 0.5f);
+        m[0] = k / (float(w) * 0.5f) * uiFit.sx;
+        m[5] = k / (float(h) * 0.5f) * uiFit.sy;
+        m[12] = uiFit.ox, m[13] = uiFit.oy;
         m[10] = -1.0f / 2.56f;
         return m;
     }
@@ -9050,7 +9061,8 @@ struct Viewer {
                 if (msgShown && uiJoint(m, "typeM_C01", x, y)) drawUiText(commandShown, 28, x, y, w, h);
             }
         }
-        // the damage
+        // the damage (those over: gone)
+        damageShown.erase(std::remove_if(damageShown.begin(), damageShown.end(), [&](const DamageShown& d) { return battleClock - d.start > 2.0f; }), damageShown.end());
         for (const DamageShown& d : damageShown) {
             if (!d.placed) continue;
             const float age = battleClock - d.start;
@@ -12713,7 +12725,14 @@ struct Viewer {
         u.fig.place = cr2::Mat34();
         poseUi(u, anim, std::clamp(p, 0.0f, 1.0f) * d);
         dev->clearDepth();
-        drawFigure(u.fig, view.data());
+        // (over the whole frame, not the UI's screen alone: a wide phone's sides - the safe area's
+        // margins - covered too; its sweep stretched to the frame's shape)
+        const UiFit keep = uiFit;
+        uiFit = UiFit();
+        const Mat4 whole = cr2::mat4Multiply(uiProjection(screenW, screenH), camera);
+        uiFit = keep;
+        drawFigure(u.fig, whole.data());
+        (void)view;
     }
     void drawEventUi() {
         dev->clearDepth(); // (the scene's depths behind all of it: a near camera's ground too)
