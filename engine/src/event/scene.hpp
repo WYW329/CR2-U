@@ -80,6 +80,7 @@ public:
     // the event's three figures (the camera and the lights optional); false: no scene figure
     bool load(const MvglArchive& archive, const std::string& event, std::string* error = nullptr);
     bool loaded() const { return loaded_; }
+    const std::string& name() const { return name_; }
 
     std::vector<EventModel>& models() { return models_; }
     EventModel* model(const std::string& name); // (case-insensitive, as the game's names vary)

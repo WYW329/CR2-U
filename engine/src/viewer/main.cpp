@@ -236,6 +236,7 @@ struct ViewFigure {
     size_t animIndex = 0;
     cr2::Animation anim;
     bool animLoaded = false;
+    bool animTried = false; // (a motion asked for once: before that a character stands in its idle - see idleFallback)
     float centre[3] = {0, 0, 0}, radius = 1;
     cr2::Mat34 place; // in the world (the skinning matrices are place * world * inverse bind)
     bool absolute = false; // its animation alone in slot 0 (map figures): not a motion over the base
@@ -2033,11 +2034,14 @@ struct Viewer {
 
     void loadAnim(ViewFigure& f, size_t index) {
         f.animIndex = index;
+        f.animTried = true;
         std::vector<uint8_t> data;
         std::string err;
-        f.animLoaded = archive.read(f.anims[index], data, &err) && f.anim.parse(data, &err) &&
-                       f.anim.joints() == int(f.skeleton.basePose.size());
-        if (!f.animLoaded) SDL_Log("%s: %s", f.anims[index].c_str(), err.empty() ? "not this skeleton's" : err.c_str());
+        cr2::Animation a;
+        const bool ok = archive.read(f.anims[index], data, &err) && a.parse(data, &err) && a.joints() == int(f.skeleton.basePose.size());
+        // (one it cannot play: the motion before kept on - not the bind pose's T for a frame or for good)
+        if (ok) f.anim = std::move(a), f.animLoaded = true;
+        else SDL_Log("%s: %s%s", f.anims[index].c_str(), err.empty() ? "not this skeleton's" : err.c_str(), f.animLoaded ? " - the one before kept" : "");
         time = 0;
     }
 
@@ -2088,8 +2092,31 @@ struct Viewer {
     // A figure's pose at time t, the skinning matrices (place * world * inverse bind), the meshes'
     // vertices through their palettes (as the game's vertex shaders: MatrixPalette[index / 3 slot],
     // the weights as stored)
+    // a character's idle (field fn01, an event's e001, a battle's bb01) - its own, by name - for one
+    // posed before any motion was asked of it (a save loaded, a model just shown): not its bind
+    // pose's T for those frames
+    bool idleMotion(ViewFigure& f, std::string* name = nullptr) {
+        if (f.name.size() <= 5) return false;
+        auto lower = [](std::string x) { for (char& ch : x) ch = char(std::tolower((unsigned char)ch)); return x; };
+        const std::string base = lower(f.name.substr(0, f.name.size() - 5));
+        for (const char* s : {"fn01", "e001", "bb01"}) {
+            const std::string want = base + s + ".anim";
+            const auto it = std::find_if(f.anims.begin(), f.anims.end(), [&](const std::string& n) { return lower(n) == want; });
+            if (it == f.anims.end()) continue;
+            if (name) *name = *it;
+            else {
+                const float keep = time;
+                loadAnim(f, size_t(it - f.anims.begin()));
+                time = keep;
+                f.absolute = false;
+            }
+            return true;
+        }
+        return false;
+    }
     void pose(ViewFigure& f, float t, bool loop = true) {
         if (!f.skinned) return;
+        if (!f.animLoaded && !f.animTried && idleMotion(f)) loop = true;
         std::vector<cr2::JointTransform> p = f.skeleton.basePose;
         if (f.animLoaded) {
             const float frames = float(std::max(f.anim.frames() - 1, 1));
@@ -5437,7 +5464,11 @@ struct Viewer {
             SDL_Log("result: victory at %.1f s", battleClock);
             commandShown = announce(6), commandShownStart = battleClock, announceHeld = true;
             for (int k = 0; k < 2; ++k)
-                if (battleRules->fighter(k).alive && fighterUnit[k] >= 0) playMotion(battleUnits[size_t(fighterUnit[k])], "bb03", battleClock, "bb03");
+                if (battleRules->fighter(k).alive && fighterUnit[k] >= 0) { // (once, then held at its end - the sword put away stays away)
+                    BattleUnit& bu = battleUnits[size_t(fighterUnit[k])];
+                    playMotion(bu, "bb03", battleClock, "bb03");
+                    bu.hold = true;
+                }
             const bool both = battleRules->fighter(0).alive && battleRules->fighter(1).alive;
             setBattleCamera(fighterUnit[1] < 0 ? "Cam_Win_PCsolo_00"
                             : battleRules->fighter(0).partner >= 0 && both ? "Cam_Win_PCpair_00"
@@ -6924,10 +6955,17 @@ struct Viewer {
             if (!m.visible || f.meshes.empty()) continue;
             // its motion (ChangeAnimator: relative to the base pose), else its own animation alone
             // in slot 0 (absolute: an effect's)
-            const std::string want = (m.animation.empty() ? m.figure : m.animation) + ".anim";
+            std::string want = (m.animation.empty() ? m.figure : m.animation) + ".anim";
             auto sameName = [](const std::string& a, const std::string& b) {
                 return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) { return std::tolower((unsigned char)x) == std::tolower((unsigned char)y); });
             };
+            // (a character no motion was given yet: its own animation is a still bind pose - the T -,
+            // so its idle, looping, until the script gives it one)
+            bool idle = false;
+            if (m.animation.empty()) {
+                std::string name;
+                if (stillOwn(m.figure) && idleMotion(f, &name)) want = name, idle = true;
+            }
             const auto it = std::find_if(f.anims.begin(), f.anims.end(), [&](const std::string& n) { return sameName(n, want); });
             if (it != f.anims.end() && (!f.animLoaded || !sameName(f.anims[f.animIndex], want))) {
                 const float keep = time;
@@ -6940,7 +6978,7 @@ struct Viewer {
             if (missing && missingMotions.insert(m.figure + "/" + want).second) {
                 SDL_Log("event: %s has no motion %s - held where it is", m.figure.c_str(), want.c_str());
             }
-            f.absolute = m.animation.empty();
+            f.absolute = m.animation.empty() && !idle;
             // a ChangeAnimatorBlend's fade from the motion before
             f.blendWeight = 1;
             // (EvtMotionManager::Update: the update after SetMotion puts the weight at 0, each after
@@ -6970,10 +7008,28 @@ struct Viewer {
                                                                                                : texture(vm.baseMaterial.diffuse());
                 vm.normalMap = cn ? cn : texture(vm.baseMaterial.texture(0x35)); // (else its own)
             }
+            const cr2::Mat34 was = f.place;
             f.place = ev.scene().placeAt(m, eventLead());
+            { // (the log: a model moving on while no motion plays on it - a glide, not a walk)
+                const float moved = std::hypot(f.place.m[3] - was.m[3], f.place.m[11] - was.m[11]);
+                const bool still = missing || !f.animLoaded || (!m.loop && !idle && m.animTime + eventLead() > f.anim.duration());
+                if (moved > 0.002f && moved < 1.0f && still && missingMotions.insert("glide " + m.figure + "/" + want).second)
+                    SDL_Log("event %s: %s moves (%.3f a frame) with no motion playing - %s%s", ev.scene().name().c_str(), m.figure.c_str(), moved,
+                            want.c_str(), missing ? " missing" : " over");
+            }
             f.tint[3] = m.alpha(eventLead()); // (ChangeAlpha)
-            pose(f, missing ? 1e6f : m.animTime + eventLead(), m.loop && !missing);
+            pose(f, missing ? 1e6f : m.animTime + eventLead(), idle || (m.loop && !missing));
         }
+    }
+    // a figure's own animation (<figure>.anim) a still one - no frames past its first: its bind pose
+    std::map<std::string, bool> stillOwnAnims;
+    bool stillOwn(const std::string& figure) {
+        const auto it = stillOwnAnims.find(figure);
+        if (it != stillOwnAnims.end()) return it->second;
+        std::vector<uint8_t> d;
+        cr2::Animation a;
+        const bool still = !archive.read(figure + ".anim", d) || !a.parse(d) || a.frames() <= 1;
+        return stillOwnAnims[figure] = still;
     }
 
     void drawEvent(int w, int h) {
@@ -7392,6 +7448,7 @@ struct Viewer {
         std::vector<std::string> joints, materials;
         bool loaded = false;
         int wide = 0; // (a screen wider than 3:2, in battle: -1 kept to its left edge, 1 its right - see wideShift)
+        float outShift = 0; // (edgeOut's, as last posed)
     };
     // (the battle's HUD on a screen wider than 3:2: its left parts - the party's windows, the break
     // and charge gauges - out to the screen's left, the commands, the lists, their help and Back to
@@ -7427,7 +7484,40 @@ struct Viewer {
         }
         return u;
     }
-    void poseUi(UiFig& u, const std::string& anim, float t, bool loop = false) {
+    // a part of the 3:2 layout going off its left or right side (a window sliding out, one
+    // waiting to slide in): on a wider screen it goes on beyond that side by as much more as the
+    // frame is wider, in step with how far it is past it - so it leaves the screen as it leaves
+    // the layout, not stopping at the frame's edge in sight (its joints, text, taps go with it)
+    float frameShift() const {
+        const float k = std::min(float(screenW) / 0.96f, float(screenH) / 0.64f);
+        return std::max(0.0f, float(frameW) / k * 0.5f - 0.48f);
+    }
+    void edgeOut(UiFig& u, const std::string& anim, float t, bool loop) {
+        if (u.fig.place.m[3] != 0 || u.fig.place.m[7] != 0) return; // (a part set at another's joint follows that one)
+        const float s = frameShift();
+        if (s <= 0) return;
+        float l = 1e9f, r = -1e9f;
+        for (const ViewMesh& vm : u.fig.meshes) {
+            if (vm.hidden) continue;
+            for (size_t o = 0; o + 12 <= vm.vertices.size(); o += cr2::kVertexStride) {
+                float x;
+                std::memcpy(&x, &vm.vertices[o], 4);
+                l = std::min(l, x), r = std::max(r, x);
+            }
+        }
+        if (l > r) return;
+        const float wd = std::max(r - l, 1e-3f);
+        float shift = 0;
+        if (r < 0 && l < -0.48f) shift = -s * std::min((-0.48f - l) / wd, 1.0f);
+        else if (l > 0 && r > 0.48f) shift = s * std::min((r - 0.48f) / wd, 1.0f);
+        if (shift == 0) return;
+        u.fig.place.m[3] = shift;
+        poseUi(u, anim, t, loop, false);
+        u.outShift = shift; // (taken off again at its next pose, its place left as set)
+    }
+    void poseUi(UiFig& u, const std::string& anim, float t, bool loop = false, bool out = true) {
+        if (u.outShift != 0 && u.fig.place.m[3] == u.outShift) u.fig.place.m[3] = 0;
+        u.outShift = 0;
         if (u.wide && battleMode) u.fig.place.m[3] = float(u.wide) * wideShift(); // (its place as set - 0 across - then out to its side)
         // (the figure's own animation - SetParameterDataBase's, alone in slot 0 - is absolute;
         // the animators added beside it relative)
@@ -7445,6 +7535,7 @@ struct Viewer {
         poseView.m[11] = 0.881f; // (camera[14] = -0.881: the eye 0.881 in front)
         pose(u.fig, t, loop);
         poseView = keepView;
+        if (out) edgeOut(u, anim, t, loop);
     }
     // the right edge of a posed figure's meshes (UI units: their vertices as last posed)
     static float uiRight(const UiFig& u) {
@@ -13474,6 +13565,23 @@ int main(int argc, char** argv) {
     SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
 #if defined(SDL_PLATFORM_IOS)
     SDL_SetHint(SDL_HINT_IOS_HIDE_HOME_INDICATOR, "2"); // (the home bar dimmed, the edges' system swipes deferred: a tap by the bottom edge - the lists' Back - reaches the game)
+    // (the log also to Documents/log.txt - the Files app shows it, to send on: this run's, at most 4 MB)
+    if (const char* docs = SDL_GetUserFolder(SDL_FOLDER_DOCUMENTS)) {
+        static FILE* logFile = std::fopen((std::string(docs) + "log.txt").c_str(), "w");
+        static SDL_LogOutputFunction before = nullptr;
+        static void* beforeData = nullptr;
+        SDL_GetLogOutputFunction(&before, &beforeData);
+        if (logFile)
+            SDL_SetLogOutputFunction([](void*, int category, SDL_LogPriority priority, const char* message) {
+                static long written = 0;
+                if (written < 4L << 20) {
+                    const int n = std::fprintf(logFile, "%.3f %s\n", double(SDL_GetTicks()) / 1000.0, message);
+                    if (n > 0) written += n;
+                    std::fflush(logFile);
+                }
+                if (before) before(beforeData, category, priority, message);
+            }, nullptr);
+    }
 #endif
     std::string data, model, capture, animName, renderer = "vulkan", lights = "d0101c", fieldName, at = "defaultPos", binary;
     float walkX = 0, walkY = 0, walkSeconds = 0; // --walk: the field's character runs first (captures)
