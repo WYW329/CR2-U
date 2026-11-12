@@ -22,6 +22,9 @@ set(THIRD_PARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
 # SQInteger (no _SQ64) on every host - the compiled scripts store their counts and integers in 4
 # bytes, and Squirrel 2's loader reads them as SQInteger
 file(GLOB SQUIRREL_SOURCES ${THIRD_PARTY_DIR}/squirrel2/squirrel/*.cpp ${THIRD_PARTY_DIR}/squirrel2/sqstdlib/*.cpp)
+if(IOS) # (its system library calls system(), which iOS hasn't; the game registers only blob and io - script/vm.cpp)
+    list(FILTER SQUIRREL_SOURCES EXCLUDE REGEX "sqstdsystem\\.cpp$")
+endif()
 add_library(squirrel2 STATIC ${SQUIRREL_SOURCES})
 target_include_directories(squirrel2 PUBLIC ${THIRD_PARTY_DIR}/squirrel2/include)
 if(MINGW)
