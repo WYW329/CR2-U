@@ -2515,7 +2515,7 @@ struct Viewer {
         uiFit.oy = -((float(screenY) + float(screenH) * 0.5f) - (float(frameY) + float(frameH) * 0.5f)) * 2.0f / float(std::max(frameH, 1));
         dev->setViewport(float(frameX), float(frameY), float(frameW), float(frameH));
         drawEventUi(); // (the vista's, or the field's events')
-        uiFit = UiFit();
+        uiFit = kUiFitNone;
     }
     // a quad over the whole frame - a fade, a dimming -, not the UI's screen alone; the UI's viewport back after it
     void fullFrameQuad(const cr2::Texture& t, const float* v, const float* rgba) {
@@ -7153,8 +7153,9 @@ struct Viewer {
     // near / far, 2.56 either way)
     // (the UI drawn over the whole frame, its screen's clip space placed in the frame's: what
     // slides in from past the safe area's edge shows rather than being cut off there)
-    struct UiFit { float sx = 1, sy = 1, ox = 0, oy = 0; };
-    static inline UiFit uiFit;
+    struct UiFit { float sx, sy, ox, oy; };
+    static constexpr UiFit kUiFitNone{1, 1, 0, 0};
+    static inline UiFit uiFit{1, 1, 0, 0};
     static Mat4 uiProjection(int w, int h) {
         const float k = std::min(float(w) / 0.96f, float(h) / 0.64f); // pixels a unit
         Mat4 m = cr2::mat4Identity();
@@ -12811,7 +12812,7 @@ struct Viewer {
         // (over the whole frame, not the UI's screen alone: a wide phone's sides - the safe area's
         // margins - covered too; its sweep stretched to the frame's shape)
         const UiFit keep = uiFit;
-        uiFit = UiFit();
+        uiFit = kUiFitNone;
         const Mat4 whole = cr2::mat4Multiply(uiProjection(screenW, screenH), camera);
         uiFit = keep;
         drawFigure(u.fig, whole.data());
