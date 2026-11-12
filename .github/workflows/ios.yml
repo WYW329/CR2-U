@@ -8,7 +8,7 @@ on:
 
 jobs:
   ios:
-    runs-on: macos-15
+    runs-on: macos-15-intel # (the arm64 runners kept not being acquired; Xcode builds the iOS arm64 app on either)
     steps:
       - uses: actions/checkout@v5
 
