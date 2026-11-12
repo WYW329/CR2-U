@@ -7192,7 +7192,9 @@ struct Viewer {
         if (!ev) return;
         const float aspect = float(w) / float(std::max(h, 1));
         wl.fig.place = cr2::Mat34();
-        if (wl.stretch && aspect >= 1.5f) wl.fig.place.m[0] = aspect / 1.5f;
+        // (stretched across the whole frame - the UI drawn over all of it, UiFit -, not just the safe area's width)
+        const float across = uiFit.sx < 1.0f ? float(frameW) / float(std::max(h, 1)) : aspect;
+        if (wl.stretch && across >= 1.5f) wl.fig.place.m[0] = across / 1.5f;
         else if (wl.lowerBelow3x2) wl.fig.place.m[7] = -0.0403125f;
         const bool closing = wl.window >= 0 && ev->windowClosing(wl.window);
         if (closing) showsMessage = false;
