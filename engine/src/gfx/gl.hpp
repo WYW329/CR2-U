@@ -3,7 +3,12 @@
 // Functions live in namespace gl (gl::Clear, gl::DrawArrays, ...) so they never
 // clash with whatever prototypes the platform's GL headers declare.
 
-#ifdef CR_GLES
+#if defined(CR_GLES) && defined(__APPLE__)
+#ifndef GLES_SILENCE_DEPRECATION
+#define GLES_SILENCE_DEPRECATION // (iOS: OpenGL ES is deprecated but still shipped)
+#endif
+#include <OpenGLES/ES3/gl.h>
+#elif defined(CR_GLES)
 #include <GLES3/gl3.h>
 #else
 #include <SDL3/SDL_opengl.h>

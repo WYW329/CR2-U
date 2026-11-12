@@ -12790,6 +12790,11 @@ std::vector<std::string> dataPlaces() {
 #ifdef SDL_PLATFORM_MACOS
     if (const size_t app = base.rfind(".app/"); app != std::string::npos) add(base.substr(0, base.rfind('/', app) + 1));
 #endif
+#ifdef SDL_PLATFORM_IOS
+    // (iPhone / iPad: the app's Documents folder first - shown in the Files app, "On My iPhone",
+    // as UIFileSharingEnabled makes it -, then the .app itself: a copy packed into it beside the port)
+    if (const char* docs = SDL_GetUserFolder(SDL_FOLDER_DOCUMENTS)) add(docs);
+#endif
     add(base);
     if (char* cwd = SDL_GetCurrentDirectory()) add(cwd), SDL_free(cwd);
     if (char* pref = SDL_GetPrefPath("DuIslingr", "CR2-U")) add(pref), SDL_free(pref); // (the profile folder: an .ipa the first start unpacked there)
@@ -13693,7 +13698,10 @@ int main(int argc, char** argv) {
     else if (v.settingsPersist) cr2::setPipelineCacheFile(Viewer::savePath("vulkan-pipelines.bin"));
     std::unique_ptr<cr2::RenderDevice> dev;
     SDL_Window* win = nullptr;
-#if defined(SDL_PLATFORM_ANDROID) || defined(SDL_PLATFORM_IOS)
+#if defined(SDL_PLATFORM_IOS)
+    // (the Retina screen's own pixels, not its points: without it UIKit draws the game at a third of them, scaled up)
+    const SDL_WindowFlags shown = SDL_WINDOW_HIGH_PIXEL_DENSITY | (capture.empty() && exploreDir.empty() ? SDL_WINDOW_FULLSCREEN : SDL_WINDOW_HIDDEN);
+#elif defined(SDL_PLATFORM_ANDROID)
     const SDL_WindowFlags shown = capture.empty() && exploreDir.empty() ? SDL_WINDOW_FULLSCREEN : SDL_WINDOW_HIDDEN; // (the system's bars hidden from the start)
 #else
     const SDL_WindowFlags shown = capture.empty() && exploreDir.empty() ? SDL_WINDOW_RESIZABLE : SDL_WINDOW_HIDDEN;

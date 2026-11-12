@@ -1,0 +1,51 @@
+# Builds the port for iPhone / iPad: an unsigned .ipa (no game data - the player adds their own
+# copy, then Sideloadly / AltStore signs it on install). OpenGL ES 3.0, arm64, iOS 15+.
+name: ios
+on:
+  push:
+    branches: [ios]
+  workflow_dispatch:
+
+jobs:
+  ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure
+        run: |
+          cmake -S engine -B build-ios -G Xcode \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="" \
+            -DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=ON \
+            -DCMAKE_DISABLE_FIND_PACKAGE_Freetype=ON \
+            -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON \
+            -DCMAKE_DISABLE_FIND_PACKAGE_SDL3=ON
+
+      - name: Build
+        run: |
+          set -o pipefail
+          cmake --build build-ios --config Release --target cr2view -- -sdk iphoneos -quiet 2>&1 | tail -200
+
+      - name: Package
+        run: |
+          app=$(find build-ios -path '*Release-iphoneos/cr2view.app' -type d | head -1)
+          echo "app: $app"
+          test -n "$app"
+          ls -la "$app"
+          plutil -p "$app/Info.plist"
+          lipo -info "$app/cr2view"
+          otool -L "$app/cr2view" | head -40
+          mkdir -p ipa/Payload upload
+          cp -R "$app" ipa/Payload/
+          (cd ipa && zip -qry ../upload/CR2-U-ios-unsigned.ipa Payload)
+          ls -la upload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CR2-U-ios
+          path: upload/CR2-U-ios-unsigned.ipa
