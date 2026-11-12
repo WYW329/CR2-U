@@ -9,6 +9,7 @@
 namespace mobile {
 // Screen fractions, so the same gesture works with letterboxing and high-DPI windows.
 struct MenuSwipe {
+    static constexpr float kRow = 0.125f; // (a list row's height, 0.08 of the 0.64-high screen: the rows under the finger)
     bool down = false, moved = false;
     int context = 0;
     float x0 = 0, y0 = 0, lastY = 0, remainder = 0;
@@ -22,8 +23,8 @@ struct MenuSwipe {
         if (!moved) return 0;
         remainder += lastY - y;
         lastY = y;
-        const int rows = int(remainder / 0.1f);
-        remainder -= rows * 0.1f;
+        const int rows = int(remainder / kRow);
+        remainder -= rows * kRow;
         return rows;
     }
 };

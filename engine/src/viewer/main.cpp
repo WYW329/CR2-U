@@ -938,6 +938,7 @@ struct Viewer {
         if (!menuSwipe.down) return false;
         menuPointerMove(x, y);
         const auto gesture = menuSwipe;
+        if (gesture.moved) glideOffset += glideDrag, glideDrag = 0; // (the part-row left: eased back)
         menuSwipe = {};
         if (gesture.down && !gesture.moved) pointerActivate(x, y);
         return true;
@@ -8176,14 +8177,19 @@ struct Viewer {
         // fewer without them)
         const int n = int(rows.size());
         const bool ends = n >= 4;
-        for (int d = -2; d <= 2; ++d) {
+        // (touch: the rows follow a dragging finger - a row a step of the swipe, 0.08 of the 0.64
+        // screen - and a change of focus glides in rather than jumping)
+        const float glide = listGlide(fi, n);
+        for (int d = -3; d <= 3; ++d) {
             const int k = fi + d;
+            const float rowY = -0.08f * float(d) + glide;
+            if (std::fabs(rowY) > 0.17f) continue; // (only the five rows' room)
             if (k < (ends ? -1 : 0) || k > (ends ? n : n - 1)) continue;
             if (k < 0 || k >= n) {
                 const std::string fig = k < 0 ? "scrllow" : "scrltop";
                 UiFig& e = uiFig(fig);
                 e.fig.place = cr2::Mat34();
-                e.fig.place.m[7] = -0.08f * float(d);
+                e.fig.place.m[7] = rowY;
                 poseUi(e, fig + "_io", t);
                 drawFigure(e.fig, view.data());
                 float sx, sy, ex, ey;
@@ -8193,7 +8199,7 @@ struct Viewer {
             const ListRow& r = rows[size_t(k)];
             UiFig& b = uiFig("scrlbtn");
             b.fig.place = cr2::Mat34();
-            b.fig.place.m[7] = -0.08f * float(d);
+            b.fig.place.m[7] = rowY;
             poseUi(b, "scrlbtn_io", t);
             for (ViewMesh& vm : b.fig.meshes) {
                 vm.material.params[0x33] = !r.selectable ? std::vector<float>{0.5f, 0.5f, 0.5f, 1.0f} : vm.baseMaterial.params[0x33];
@@ -8329,6 +8335,24 @@ struct Viewer {
     std::function<int(int)> buttonFighter; // (a target button's fighter, -1 none)
     std::function<int(int)> buttonLevel;   // (an awakening button's level)
     std::vector<ListRow> listRows;         // (the skill list as drawn: a tap on a row focuses it)
+    // the list's rows' offset as drawn (up positive): the drag's part-row, and a focus change easing out
+    int glideFocus = -1, glideCount = -1;
+    float glideOffset = 0, glideClock = 0, glideDrag = 0;
+    float listGlide(int fi, int n) {
+        const float dt = std::clamp(uiClock - glideClock, 0.0f, 0.1f);
+        glideClock = uiClock;
+        const bool dragging = menuSwipe.down && menuSwipe.moved;
+        if (n != glideCount) glideOffset = 0; // (another list)
+        else if (fi != glideFocus && !dragging) glideOffset -= 0.08f * float(fi - glideFocus); // (the rows from where they were)
+        glideFocus = fi, glideCount = n;
+        glideOffset *= std::exp(-dt * 18.0f);
+        if (std::fabs(glideOffset) < 0.0005f) glideOffset = 0;
+        glideOffset = std::clamp(glideOffset, -0.16f, 0.16f);
+        float drag = dragging ? menuSwipe.remainder * 0.64f : 0.0f;
+        if ((fi <= 0 && drag < 0) || (fi >= n - 1 && drag > 0)) drag = std::clamp(drag * 0.3f, -0.05f, 0.05f); // (past an end: held back)
+        glideDrag = drag;
+        return glideOffset + drag;
+    }
     // the menu of the choosing's step, the cursor's choice marked (the keys')
     // BattleOptionMenu (an OptionMenu - InterfaceMain's 0x3e - with the battle's labels): the title
     // (`menu` with menuOpt_io), the seat (seatOpt_io): its seven labels at typeM_L01..L07 - BGM,
@@ -10655,6 +10679,10 @@ struct Viewer {
         }
         const float k = std::min(float(screenW) / 0.96f, float(screenH) / 0.64f);
         const float x = (fx - 0.5f) * float(screenW) / k, y = (0.5f - fy) * float(screenH) / k;
+        if (campOpen && campList && !campUse && !optionsOpen) // (a list's Back first: a row's tap area reaching over it takes nothing from it)
+            for (const TapRect& r : tapRects)
+                if (r.id == 100 && x >= std::min(r.x0, r.x1) && x <= std::max(r.x0, r.x1) && y >= std::min(r.y0, r.y1) && y <= std::max(r.y0, r.y1))
+                    return campPress(100), true;
         for (const TapRect& r : tapRects)
             if (x >= std::min(r.x0, r.x1) && x <= std::max(r.x0, r.x1) && y >= std::min(r.y0, r.y1) && y <= std::max(r.y0, r.y1)) {
                 if (r.id > 6000 && r.id <= 6005) fieldTabTap(r.id - 6000);
@@ -13341,6 +13369,9 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::strcmp(argv[1], "--selftest-input-cancel") == 0) return inputCancelViewerSelfTest();
     if (argc > 1 && std::strcmp(argv[1], "--selftest-pad-controls") == 0) return padControlsSelfTest();
     SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+#if defined(SDL_PLATFORM_IOS)
+    SDL_SetHint(SDL_HINT_IOS_HIDE_HOME_INDICATOR, "2"); // (the home bar dimmed, the edges' system swipes deferred: a tap by the bottom edge - the lists' Back - reaches the game)
+#endif
     std::string data, model, capture, animName, renderer = "vulkan", lights = "d0101c", fieldName, at = "defaultPos", binary;
     float walkX = 0, walkY = 0, walkSeconds = 0; // --walk: the field's character runs first (captures)
     float drag[5] = {0, 0, 0, 0, 0};               // --drag x0,y0,x1,y1,s: then a finger's drag that long (the screen's fractions; held for the capture)
