@@ -2335,15 +2335,27 @@ struct Viewer {
                     if (!st->second.motion.empty()) {
                         if (gimmickSerial[k] != st->second.motionSerial) {
                             gimmickSerial[k] = st->second.motionSerial;
-                            const auto a = std::find(g.anims.begin(), g.anims.end(), st->second.motion + ".anim");
-                            if (a != g.anims.end()) {
+                            // (its animator by name - the case aside, or the figure's own name before it)
+                            auto lower = [](std::string x) { for (char& ch : x) ch = char(std::tolower((unsigned char)ch)); return x; };
+                            const std::string want = lower(st->second.motion + ".anim");
+                            const std::string base = g.name.size() > 5 ? lower(g.name.substr(0, g.name.size() - 5)) : std::string();
+                            auto a = std::find_if(g.anims.begin(), g.anims.end(), [&](const std::string& n) { return lower(n) == want; });
+                            if (a == g.anims.end() && !base.empty())
+                                a = std::find_if(g.anims.begin(), g.anims.end(), [&](const std::string& n) { return lower(n) == base + want; });
+                            gimmickMissing[k] = a == g.anims.end();
+                            if (!gimmickMissing[k]) {
                                 const float keep = time;
                                 loadAnim(g, size_t(a - g.anims.begin()));
                                 time = keep;
                                 g.absolute = false; // (SetAnime / SetEventAnim: slot 1, a motion)
+                            } else {
+                                SDL_Log("field: %s has no motion %s - held where it is", g.name.c_str(), st->second.motion.c_str());
                             }
                         }
-                        pose(g, float(script->ticks() - st->second.motionTick) * cr2::EventRuntime::kTick + fieldClock, st->second.motionLoop);
+                        // (a motion it hasn't: the one before held at its end, not replayed from its start
+                        // over and over as the missing one's loop)
+                        const float mt = float(script->ticks() - st->second.motionTick) * cr2::EventRuntime::kTick + fieldClock;
+                        pose(g, gimmickMissing[k] ? 1e6f : mt, st->second.motionLoop && !gimmickMissing[k]);
                         continue;
                     }
                 }
@@ -2700,6 +2712,7 @@ struct Viewer {
     std::vector<std::string> shownGimmicks;
     std::vector<std::string> gimmickIds; // (the figures' gimmicks: the script's names for them)
     std::vector<int> gimmickSerial;      // (the event motion each has loaded: its SetMotion's count)
+    std::vector<char> gimmickMissing;    // (its last SetMotion's animator not among its own)
     struct Facing {
         int serial = 0;
         float yaw = 0, from = 0, to = 0;
@@ -2738,7 +2751,7 @@ struct Viewer {
         shownGimmicks = want;
         std::string err;
         for (ViewFigure& g : gimmicks) unload(g);
-        gimmicks.clear(), gimmickIds.clear(), gimmickSerial.clear(), gimmickFace.clear(), gimmickColor.clear(), gimmickShadow.clear(), gimmickFidget.clear();
+        gimmicks.clear(), gimmickIds.clear(), gimmickSerial.clear(), gimmickMissing.clear(), gimmickFace.clear(), gimmickColor.clear(), gimmickShadow.clear(), gimmickFidget.clear();
         for (const cr2::Gimmick& gm : field.gimmicks()) {
             if (gm.figure.empty() || !archive.contains(gm.figure + ".geom") || !script->visible(gm)) continue;
             ViewFigure g;
@@ -2753,7 +2766,7 @@ struct Viewer {
             if (gm.kind == cr2::Gimmick::Npc) playMotion(g, "fn01");
             if (gm.kind == cr2::Gimmick::Box) playMotion(g, game.boxes.isOpen(gm.boxKind, gm.boxNumber) ? "fn02" : "fn01"); // (FldBox: closed fn01, open fn02)
             gimmicks.push_back(std::move(g));
-            gimmickIds.push_back(gm.id), gimmickSerial.push_back(0), gimmickColor.push_back(-1);
+            gimmickIds.push_back(gm.id), gimmickSerial.push_back(0), gimmickMissing.push_back(0), gimmickColor.push_back(-1);
             gimmickShadow.push_back(gm.kind == cr2::Gimmick::Npc || gm.kind == cr2::Gimmick::Box);
             Fidget fd;
             fd.party = gm.kind == cr2::Gimmick::Npc && gm.figure.size() >= 4 && gm.figure.compare(0, 3, "c00") == 0 && gm.figure[3] >= '1' && gm.figure[3] <= '6';
