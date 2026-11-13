@@ -2797,6 +2797,15 @@ struct Viewer {
             if (!gm.figure.empty() && archive.contains(gm.figure + ".geom") && script->visible(gm)) want.push_back(gm.name);
         if (want == shownGimmicks) return;
         shownGimmicks = want;
+        { // (the log: the figures shown - an NPC only by its script's Disp -, and the natives the scripts called that are stubs)
+            std::string list;
+            for (const cr2::Gimmick& gm : field.gimmicks())
+                if (std::find(want.begin(), want.end(), gm.name) != want.end()) list += " " + gm.name + (gm.kind == cr2::Gimmick::Npc ? "(npc)" : "");
+            SDL_Log("%s: shown -%s", field.info().name.c_str(), list.empty() ? " none" : list.c_str());
+            static std::set<std::string> stubsLogged;
+            for (const auto& [name, n] : script->stubCalls())
+                if (stubsLogged.insert(name).second) SDL_Log("script: %s is a stub (%d calls so far)", name.c_str(), n);
+        }
         std::string err;
         for (ViewFigure& g : gimmicks) unload(g);
         gimmicks.clear(), gimmickIds.clear(), gimmickSerial.clear(), gimmickMissing.clear(), gimmickFace.clear(), gimmickColor.clear(), gimmickShadow.clear(), gimmickFidget.clear();
