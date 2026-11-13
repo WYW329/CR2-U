@@ -10,10 +10,13 @@
 #else
 #define SHADE_HIGHP
 #endif
+// (GL: plain uniforms in a struct, not a block - one block rewritten before every draw makes
+// ANGLE's Metal wait on the GPU or copy the buffer each time: a whole frame's worth of stalls -
+// while its default uniforms are its own fresh memory per draw)
 #ifdef VULKAN
 layout(std140, set = 1, binding = 0) uniform Material {
 #else
-layout(std140) uniform Material {
+struct Material {
 #endif
     vec4 diffuse;          // DiffuseColor
     vec4 params;           // Bumpiness, SpecularStrength, SpecularPower, AlphaRef
@@ -35,7 +38,12 @@ layout(std140) uniform Material {
     vec4 strengths;        // OverlayStrength, DistortionStrength, -, -
     vec4 pointPos;         // PointLamp01Pos (w: its radius)
     vec4 pointColor;       // PointLamp01Color
+#ifdef VULKAN
 } mat;
+#else
+};
+uniform Material mat;
+#endif
 
 // ---- the vertex programs' parts ----
 

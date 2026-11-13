@@ -313,11 +313,11 @@ public:
         auto it = meshes_.find(mesh.vao);
         if (it == meshes_.end()) return;
         auto& rec = it->second;
-        const bool sameSize = rec.vertices.size() == vertices.size();
         rec.vertices = vertices; // includes the latest skinned/animated pose
         gl::BindBuffer(GL_ARRAY_BUFFER, rec.vbo);
-        if (sameSize) gl::BufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(vertices.size()), vertices.data());
-        else gl::BufferData(GL_ARRAY_BUFFER, GLsizeiptr(vertices.size()), vertices.data(), GL_DYNAMIC_DRAW);
+        // (orphaned - fresh storage - not written over: the last frame's draws may still be reading
+        // it, and a sub-update would make ANGLE's Metal wait for them or copy it)
+        gl::BufferData(GL_ARRAY_BUFFER, GLsizeiptr(vertices.size()), vertices.data(), GL_DYNAMIC_DRAW);
     }
 
     void destroy(GpuMesh& mesh) override {
@@ -391,8 +391,14 @@ public:
         gl::Uniform1i(uAlphaTex_, sh.alphaTex ? 1 : 0);
         gl::Uniform4f(uLight_, sh.light[0], sh.light[1], sh.light[2], sh.lit ? 1.0f : 0.0f);
         const ShadingBlock block = shadingBlock(sh, lighting_);
-        gl::BindBuffer(GL_UNIFORM_BUFFER, ubo_);
-        gl::BufferSubData(GL_UNIFORM_BUFFER, 0, sizeof block, &block);
+        { // (the struct's members, each its own vec4 - flags an ivec4 - as laid out in the block)
+            const float* f = reinterpret_cast<const float*>(&block);
+            for (int k = 0; k < kMatCount; ++k) {
+                if (uMat_[k] < 0) continue;
+                if (k == 3) gl::Uniform4iv(uMat_[k], 1, block.flags);
+                else gl::Uniform4fv(uMat_[k], 1, f + 4 * k);
+            }
+        }
         bindTexture(2, sh.extraMap, sh.extraSampling);
         bindTexture(1, sh.normalMap, sh.normalSampling);
         bindTexture(0, tex, st.sampling);
@@ -525,11 +531,11 @@ private:
         gl::Uniform1i(gl::GetUniformLocation(meshProgram_, "uTex"), 0);
         gl::Uniform1i(gl::GetUniformLocation(meshProgram_, "uNormal"), 1);
         gl::Uniform1i(gl::GetUniformLocation(meshProgram_, "uExtra"), 2);
-        gl::UniformBlockBinding(meshProgram_, gl::GetUniformBlockIndex(meshProgram_, "Material"), 0);
-        gl::GenBuffers(1, &ubo_);
-        gl::BindBuffer(GL_UNIFORM_BUFFER, ubo_);
-        gl::BufferData(GL_UNIFORM_BUFFER, sizeof(ShadingBlock), nullptr, GL_DYNAMIC_DRAW);
-        gl::BindBufferBase(GL_UNIFORM_BUFFER, 0, ubo_);
+        // (the material: the struct's members, in ShadingBlock's order - shading.glsl)
+        static const char* const kMatFields[kMatCount] = {"diffuse", "params",  "velvet",    "flags",    "surface",  "fuzzy",    "sub",
+                                                          "uvAnim",  "lightDir", "lightColor", "ambient", "ground",   "skyDir",   "fogParams",
+                                                          "fogColor", "camera", "uvAnim2",   "strengths", "pointPos", "pointColor"};
+        for (int k = 0; k < kMatCount; ++k) uMat_[k] = gl::GetUniformLocation(meshProgram_, (std::string("mat.") + kMatFields[k]).c_str());
         uAlphaRef_ = gl::GetUniformLocation(meshProgram_, "uAlphaRef");
         uMeshColor_ = gl::GetUniformLocation(meshProgram_, "uColor");
         uTexMode_ = gl::GetUniformLocation(meshProgram_, "uTexMode");
@@ -588,6 +594,8 @@ private:
     unsigned program_ = 0, vao_ = 0, vbo_ = 0;
     int uProj_ = -1, uColor_ = -1, uTex_ = -1;
     unsigned meshProgram_ = 0, ubo_ = 0;
+    static constexpr int kMatCount = 20; // (ShadingBlock's vec4s)
+    int uMat_[kMatCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
     int uMvp_ = -1, uAlphaRef_ = -1, uMeshColor_ = -1, uTexMode_ = -1, uAlphaTex_ = -1, uLight_ = -1;
     int drawableW_ = 0, drawableH_ = 0;
     bool colorWrite_ = true; // (setColorWrite: the props' depth-only pass)
