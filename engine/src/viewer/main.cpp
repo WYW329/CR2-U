@@ -6957,6 +6957,9 @@ struct Viewer {
 
     std::set<std::string> missingMotions; // (each logged once)
     void poseEventModels(cr2::EventRuntime& ev) {
+        // (the figures this scene's models: the field's first frame back from a vista posed the
+        // vista's figures under the field event's models - the wrong figure a frame, a flash)
+        syncEventFigures(ev);
         std::vector<cr2::EventModel>& models = ev.scene().models();
         for (size_t i = 0; i < models.size() && i < eventFigures.size(); ++i) {
             ViewFigure& f = eventFigures[i];
@@ -14694,6 +14697,7 @@ int main(int argc, char** argv) {
                 measured = float(double(fpsFrames) * 1e9 / double(now - fpsSince));
                 fpsFrames = 0, fpsSince = now;
             }
+            const Uint64 workStart = SDL_GetTicksNS(); // (a long frame: its parts' times logged)
             if (!v.paused) v.time += dt;
             if (!v.paused && v.battleMode && !v.fieldMode && !v.eventMode) v.advance(dt, 0, 0, false);
             if (!v.paused && (v.eventMode || v.fieldMode || v.credits.stage || v.titleMenu.stage)) { // the arrows / WASD run, with Shift walk (the title: its clock)
@@ -14715,13 +14719,20 @@ int main(int argc, char** argv) {
                 v.advance(dt, sx, sy, run);
             }
             if (v.fig.animLoaded && v.time > v.fig.anim.duration()) v.time = std::fmod(v.time, std::max(v.fig.anim.duration(), 0.05f));
+            const Uint64 advanced = SDL_GetTicksNS();
             v.pose();
+            const Uint64 posed = SDL_GetTicksNS();
             SDL_SetWindowTitle(win, ("CR2-U viewer (" + std::string(cr2::backendName(dev->windowFlags() & SDL_WINDOW_VULKAN ? cr2::Backend::Vulkan : cr2::Backend::OpenGL)) + ", " +
                                      describe() + ", " + std::to_string(int(measured + 0.5f)) + " fps) - " + v.status + v.animStatus()).c_str());
             int w = 0, h = 0;
             frameSize(w, h);
+            const Uint64 drawStart = SDL_GetTicksNS();
             v.draw(w, h);
+            const Uint64 drawn = SDL_GetTicksNS();
             dev->endFrame(true);
+            if (const Uint64 done = SDL_GetTicksNS(); done - workStart > 80000000)
+                SDL_Log("window: a slow frame %.3f s - update %.3f, pose %.3f, draw %.3f, present %.3f%s%s", double(done - workStart) / 1e9, double(advanced - workStart) / 1e9,
+                        double(posed - advanced) / 1e9, double(drawn - drawStart) / 1e9, double(done - drawn) / 1e9, v.eventMode ? " (event)" : v.fieldMode ? " (field)" : "", v.battleMode ? " (battle)" : "");
             { // (tests: CR2_WINDOW_SHOTS=<folder>:<from>:<n> - from the battle's <from> s, every nth shown frame as
               // <folder>/wNNNNN_<battle s>.bmp; CR2_WINDOW_QUIT=<s> - the window closed at that battle time; a long frame logged)
                 static std::string shotDir;
