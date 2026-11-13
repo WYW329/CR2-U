@@ -1207,6 +1207,7 @@ struct Viewer {
         int chose = -1; // (the spot tapped: its ring out)
         float choseAt = 0;
     } mystic;
+    std::string markWhyNot; // (the last ability touched with no mark: logged once)
     bool actionRunning() const { return sprint.stage != 0 || iai.stage != 0 || aim.stage != 0 || hakkei.stage != 0 || mystic.stage != 0; }
     void updateActionMark() {
         if (actionRunning()) return;
@@ -1217,14 +1218,26 @@ struct Viewer {
             const std::vector<cr2::Gimmick>& gs = field.gimmicks();
             for (size_t i = 0; i < gs.size() && at < 0; ++i) {
                 const cr2::Gimmick& g = gs[i];
-                if (g.kind != cr2::Gimmick::Ability || actionKind(g.name) == 0 || !script->visible(g)) continue;
+                if (g.kind != cr2::Gimmick::Ability || actionKind(g.name) == 0) continue;
                 const cr2::FieldScript::TouchAction* a = script->touchAction(g.name);
+                if (g.touches(controller->position().data(), controller->radius) && (!script->visible(g) || !a || !a->enabled || a->spots.empty())) {
+                    // (why a mark isn't there: once each time the leader steps on it)
+                    if (markWhyNot != g.name)
+                        SDL_Log("%s: %s touched - no mark: %s%s%s", field.info().name.c_str(), g.name.c_str(), script->visible(g) ? "" : "hidden ",
+                                !a ? "never added" : !a->enabled ? "not enabled" : "", a && a->spots.empty() ? " no spots" : "");
+                    markWhyNot = g.name;
+                }
+                if (!script->visible(g)) continue;
                 if (a && a->enabled && !a->spots.empty() && g.touches(controller->position().data(), controller->radius)) at = int(i);
             }
         }
         if (at != actionMark.gimmick) {
             actionMark = ActionMark(), actionMark.gimmick = at, actionMark.at = uiClock;
-            if (at >= 0) actionMark.kind = actionKind(field.gimmicks()[size_t(at)].name);
+            if (at >= 0) {
+                actionMark.kind = actionKind(field.gimmicks()[size_t(at)].name);
+                SDL_Log("%s: %s mark shown (leader %d, its own %d)", field.info().name.c_str(), field.gimmicks()[size_t(at)].name.c_str(), script->leader(),
+                        actionCharacter(actionMark.kind));
+            }
         }
         actionMark.able = actionMark.kind && script->leader() == actionCharacter(actionMark.kind);
     }
@@ -3879,6 +3892,7 @@ struct Viewer {
     size_t showIndex = 0;
     float showStart = 0; // (battle seconds)
     float showHitAt = 0, showEnd = 0;
+    float shotLaunch = 0; // (seconds into the action: a shot's leaving)
     int showCamera2 = -1;
     // cameras later in an action (seconds into it): an item's and a sopia's on the one it is used on
     // (ActionItemWaitLaunch / ActionSopiaWaitLaunch -> SetTargetCamera(false)), a sopia's caster's
@@ -5690,6 +5704,7 @@ struct Viewer {
         }
         if (a.partner >= 0 && a.actor < 2) motion = "bp01"; // (the pair's command: +0x46, bp01)
         float length = 0, returned = -1;
+        shotLaunch = 0;
         for (Move& m : showMoves) m = Move();
         const int target = a.hits.empty() ? -1 : a.hits.front().target;
         int slot = 0;
@@ -5736,7 +5751,12 @@ struct Viewer {
                 m.start = t.moveStart + delay, m.end = t.moveEnd + delay;
                 m.back = t.move2Start + delay, m.backEnd = t.move2End + delay;
             }
-            if (f == a.actor) showHitAt = t.hit[0] >= 0 ? t.hit[0] + delay : length * 0.5f;
+            if (f == a.actor) {
+                showHitAt = t.hit[0] >= 0 ? t.hit[0] + delay : length * 0.5f;
+                // (a shot leaves as the motion lets it go - its effect time, 0x4c -, not before
+                // the motion has even begun: a breath's spit from the mouth, then the hit)
+                shotLaunch = t.effectStart >= 0 && t.effectStart + delay < showHitAt ? t.effectStart + delay : std::min(delay, showHitAt);
+            }
             if (t.move2End >= 0) returned = std::max(returned, t.move2End + delay);
         }
         // (the attack's end - 21 ActionAttackReturn, 23 ActionAttackWaitFinishReturn and 5 to the
@@ -5782,7 +5802,8 @@ struct Viewer {
                     time = keep;
                     fx.set = &cr2::effectSetting(c->shotEffect);
                     fx.fig->absolute = true;
-                    fx.shot = true, fx.path = fx.set->shotPath, fx.start = battleClock, fx.flight = std::max(showHitAt, 0.1f);
+                    fx.shot = true, fx.path = fx.set->shotPath, fx.start = battleClock + shotLaunch, fx.flight = std::max(showHitAt - shotLaunch, 0.1f);
+                    SDL_Log("  shot %s: leaves at %.2f s, hits at %.2f s", c->shotEffect.c_str(), shotLaunch, showHitAt);
                     cr2::MotionTimes mt;
                     const BattleUnit* au = unitOf(a.actor);
                     const BattleUnit* tu = unitOf(target);
@@ -5800,7 +5821,10 @@ struct Viewer {
                     time = keep;
                     SDL_Log("shot %s: %s", c->shotEffect.c_str(), err.c_str());
                 }
-                if (!c->shotMark.empty()) commandEffect(c->shotMark, target, a.partner >= 0);
+                if (!c->shotMark.empty()) { // (on the one it is for as it flies: from its launch)
+                    if (shotLaunch <= 0) commandEffect(c->shotMark, target, a.partner >= 0);
+                    else pendingEffects.push_back({c->shotMark, target, a.partner >= 0, battleClock + shotLaunch});
+                }
             }
             // (j007's and m507's: CreateWarpEffect - a pair's, eff110 twice on the one acting -
             // and CreateAttackObject - an attack's, its plain or pair attack's launch effect)
