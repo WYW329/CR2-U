@@ -1828,7 +1828,8 @@ struct Viewer {
             leaderMotionSerial = script->playerState().motionSerial, leaderMotion = script->playerState().motion,
             SDL_Log("leader: motion %s", leaderMotion.c_str());
         if (speed != 0) leaderMotion.clear(); // (moving again: its own motions)
-        playMotion(fig, !leaderMotion.empty() ? leaderMotion.c_str() : speed == 0 ? "fn01" : run ? "ff02" : "ff01");
+        // (a touch action - a sprint's jumps, the iai's, an aim's - plays its own motions: not the idle over them each frame)
+        if (!actionRunning()) playMotion(fig, !leaderMotion.empty() ? leaderMotion.c_str() : speed == 0 ? "fn01" : run ? "ff02" : "ff01");
         if (!exitTo.empty()) {
             SDL_Log("exit %s", exitTo.c_str());
             // FldMain::CollisionEventExec: SE 0x152 leaving or entering a sky map (the table's +0x15 -
@@ -3174,7 +3175,7 @@ struct Viewer {
                 // (held: the wipe, then the battle)
             } else if (fieldMode && !eventMode) {
                 const bool held = fieldScriptRunning() || keyLock.stage != 0 || changeStage != 0 || actionRunning();
-                walk(dt, held ? 0 : sx, held ? 0 : sy, run);
+                if (!sprint.stage) walk(dt, held ? 0 : sx, held ? 0 : sy, run); // (a sprint moves the leader itself: the controller's place not over its arc)
             }
         }
     }
@@ -7489,7 +7490,7 @@ struct Viewer {
     // the parts set at them - go with it)
     static int wideSide(const std::string& name) {
         static const std::map<std::string, int> kSide = {
-            {"pc01win", -1}, {"pc02win", -1}, {"brkwin", -1}, {"brkgauge", -1}, {"brkinfo", -1}, {"chggauge", -1},
+            {"pc01win", -1}, {"pc02win", -1}, {"pc01info", -1}, {"pc02info", -1}, {"pc01hpnum", -1}, {"pc01mpnum", -1}, {"pc02hpnum", -1}, {"pc02mpnum", -1}, {"brkwin", -1}, {"brkgauge", -1}, {"brkinfo", -1}, {"chggauge", -1},
             {"btlbtn", 1}, {"btlback", 1}, {"scrlbar", 1}, {"scrlmtr_per", 1}, {"scrllow", 1}, {"scrltop", 1},
             {"scrlbtn", 1}, {"scrlwin", 1}, {"scrlback", 1}, {"backcsr", 1}, {"tabwin_io", 1}};
         const auto it = kSide.find(name);
@@ -9220,6 +9221,7 @@ struct Viewer {
             for (const char* what : {"hpNum", "mpNum"}) {
                 UiFig& num = uiFig(n + (std::string(what) == "hpNum" ? "hpnum" : "mpnum"));
                 num.fig.place = cr2::Mat34();
+                poseUi(num, n + (std::string(what) == "hpNum" ? "hpnum" : "mpnum"), 0); // (out to the left with its window on a wide screen)
                 float x, y;
                 if (uiJoint(num, "call_dotNum_num1", x, y))
                     drawDigits(std::string(what) == "hpNum" ? hp : f.mp, 90, std::string(what) == "hpNum" ? 5 : 4, x, y, proj);
