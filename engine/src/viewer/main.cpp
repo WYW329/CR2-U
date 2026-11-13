@@ -2606,7 +2606,9 @@ struct Viewer {
     }
 
     void drawScene(int w, int h) {
-        if (credits.stage || titleMenu.stage) return; // (the staff roll: its figure over black, in the interface's pass; the title)
+        // (the staff roll: its figure over black, in the interface's pass; the title - and the frame
+        // after its fade, its choice not yet taken: not the viewer's own figure over the black)
+        if (credits.stage || titleMenu.stage || titleMenu.action) return;
         if (battleMode) {
             drawBattle(w, h);
             return;
