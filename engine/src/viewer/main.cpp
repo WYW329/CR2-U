@@ -2924,7 +2924,10 @@ struct Viewer {
             const auto it = script->gimmicks().find(g.id);
             return script->visible(g) && (it == script->gimmicks().end() || it->second.collision);
         });
-        shownGimmicks.clear();
+        // (a new area: its figures made anew whatever it shows - an empty "shown" mustn't match a
+        // cleared list and leave the last area's figures standing, at their old places: the NPCs
+        // twice over beside an event's own, a crystal in a room it isn't in)
+        shownGimmicks.assign(1, std::string(1, '\x01'));
         refreshGimmicks();
         if (!at.empty() && at.rfind(map, 0) == 0) fieldArrival = at;
         else if (fieldArrival.rfind(map, 0) != 0) fieldArrival = map;
