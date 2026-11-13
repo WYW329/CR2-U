@@ -10,7 +10,7 @@ namespace {
 
 constexpr int kEffectSlots = 16, kVoiceSlots = 16;
 constexpr float kUpdates = 20.0f; // (the game's updates a second: what fades count)
-constexpr float kBgmAhead = 0.5f; // (seconds of the music kept queued)
+constexpr float kBgmAhead = 2.0f; // (seconds of the music kept queued: enough to ride out a load's stall - a field made after a battle -, the gain and a clear still at once)
 
 } // namespace
 
