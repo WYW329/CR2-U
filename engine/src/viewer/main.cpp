@@ -891,6 +891,18 @@ struct Viewer {
         if (settingsOpen) return {&settingsCursor, int(settingRows().size()), 1};
         if (optionsOpen || optionsAsk) return {};
         if (manualStage == 1) return {&manualCursor, int(manualEntries.size()), 2};
+        // (every list drawn by drawSkillList follows the finger: the battle's items / advents /
+        // awakenings / sopia, the shop's, the world select's, the library's - as the camp's)
+        if (battleMode && choosing) {
+            using CI = cr2::CommandInput;
+            const CI::Menu m = commandInput.menu();
+            if (m == CI::Menu::Items || m == CI::Menu::Advent || m == CI::Menu::Awake || m == CI::Menu::Sopia)
+                return {&menuCursor, int(menuChoices().size()), 200 + int(m)};
+            return {};
+        }
+        if (shop.stage == 3) return {&shop.focus, int(shopRows().size()), 300 + shop.kind + (shop.buy ? 0 : 10)};
+        if (library.stage == 1) return {&library.focus, int(libraryRows().size()), 400};
+        if (world.stage == 1 || world.stage == 2) return {&world.focus, int(worldRows().size()), 500 + world.stage + (world.chapters ? 10 : 0)};
         if (campOpen && !campUse && !campTakeSopia && campLink != 201) {
             if (campList == 17) return {&campEquipCursor, int(equipRows().size()), 30 + campEquipMode};
             if ((campList == 16 || campList == 18) && !campSopiaDetail)
