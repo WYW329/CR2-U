@@ -2010,6 +2010,13 @@ struct Viewer {
                     f.anims.push_back(e.name);
         std::sort(f.anims.begin(), f.anims.end());
         if (!f.anims.empty()) loadAnim(f, std::min(f.animIndex, f.anims.size() - 1));
+        // (the first of its animations is a character's own <figure>.anim - a still bind pose, the
+        // T: its idle instead, posed now - drawn before anything poses it, it stands, not the T)
+        if (f.skinned && f.animLoaded && f.anim.frames() <= 1 && idleMotion(f)) {
+            const float keep = time;
+            pose(f, 0, true);
+            time = keep;
+        }
         return true;
     }
 
@@ -8947,7 +8954,9 @@ struct Viewer {
         const bool one = count == 1 && !twoAlways;
         UiFig& win = uiFig("campwin");
         win.fig.place = cr2::Mat34();
-        poseUi(win, one ? "campwin1_io" : "campwin2_io", t);
+        // (the lone window is GEO_campWin3 - joint 45 -, and campWin3_io is what slides it in: campWin1_io
+        // moves the first window's joint alone, leaving the third at its base, -0.564 - off the side)
+        poseUi(win, one ? "campwin3_io" : "campwin2_io", t);
         for (ViewMesh& vm : win.fig.meshes) { // (the parts the window does not use: their joints' meshes)
             const uint32_t j = vm.source.palette.empty() ? ~0u : vm.source.palette[0];
             const std::string jn = j < win.joints.size() ? win.joints[j] : "";
