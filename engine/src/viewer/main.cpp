@@ -9014,7 +9014,10 @@ struct Viewer {
             const float hpT = r.hp > 0 ? std::max(float(r.hp) * 5.0f / float(std::max(r.hpMax, 1)), 0.07f) : 0.0f;
             const float mpT = r.mpMax > 0 ? float(r.mp) * 5.0f / float(r.mpMax) : 0.0f;
             const struct { const char* prefix; const char* fig; float pose; } bars[3] = {
-                {"call_cmpHpBar_per", "cmphpbar_per", hpT}, {"call_cmpMpBar_per", "cmpmpbar_per", mpT}, {"call_cmpNxBar_per", "cmpnxbar_per", float(r.percent) / 20.0f}};
+                // (the lone window's bars the battle's shorter ones - CharaStatusWindowBMenu's: the camp's
+                // ran past its frame)
+                {"call_cmpHpBar_per", one ? "btlhpbar_per" : "cmphpbar_per", hpT}, {"call_cmpMpBar_per", one ? "btlmpbar_per" : "cmpmpbar_per", mpT},
+                {"call_cmpNxBar_per", "cmpnxbar_per", float(r.percent) / 20.0f}};
             for (const auto& bar : bars) {
                 int seen = 0;
                 for (const std::string& j : win.joints) {
