@@ -376,8 +376,7 @@ struct Viewer {
                      s.battleSpeed) < 0 || !serialized) return;
         std::string text = serialized;
         SDL_free(serialized);
-        text += "whole_map=" + std::to_string(int(s.wholeMap)) + "
-";
+        text += "whole_map=" + std::to_string(int(s.wholeMap)) + "\n";
         text += "lock_orientation=" + std::to_string(int(s.lockOrientation)) + "\nlandscape_flipped=" + std::to_string(int(s.landscapeFlipped)) + "\n";
         if (!keepData.empty()) text += "data=" + keepData + "\n";
         std::string error;
