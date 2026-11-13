@@ -320,6 +320,7 @@ struct Viewer {
         bool padSwap = false;     // a controller's: × (south) confirms, ○ (east) goes back - else as the Vita
         int fieldSpeed = 1;       // the field while the player walks it (nothing running there), this many times as fast: 1, 2 .. 5
         int battleSpeed = 1;      // the battles, this many times as fast: 1, 2 .. 5
+        bool wholeMap = false;    // the field's painting whole on a screen wider than 3:2 (bars at its sides), not widened to fill it
     } settings;
     bool settingsPersist = false;
     int rendererInUse = 0;        // (the device that started: the Renderer row's "next start")
@@ -358,6 +359,7 @@ struct Viewer {
             else if (k == "pad_swap") s.padSwap = v != 0;
             else if (k == "field_speed") s.fieldSpeed = std::clamp(v, 1, 5);
             else if (k == "battle_speed") s.battleSpeed = std::clamp(v, 1, 5);
+            else if (k == "whole_map") s.wholeMap = v != 0;
         }
         std::fclose(f);
     }
@@ -374,6 +376,8 @@ struct Viewer {
                      s.battleSpeed) < 0 || !serialized) return;
         std::string text = serialized;
         SDL_free(serialized);
+        text += "whole_map=" + std::to_string(int(s.wholeMap)) + "
+";
         text += "lock_orientation=" + std::to_string(int(s.lockOrientation)) + "\nlandscape_flipped=" + std::to_string(int(s.landscapeFlipped)) + "\n";
         if (!keepData.empty()) text += "data=" + keepData + "\n";
         std::string error;
@@ -583,6 +587,10 @@ struct Viewer {
                         [&s](int d) { s.fieldSpeed = (s.fieldSpeed - 1 + d + 5) % 5 + 1; }});
         rows.push_back({"Battle Speed", speed(s.battleSpeed), "The battles 2 .. 5 times as fast", true,
                         [&s](int d) { s.battleSpeed = (s.battleSpeed - 1 + d + 5) % 5 + 1; }});
+        rows.push_back({"Whole Map", onOff(s.wholeMap),
+                        s.wholeMap ? "The field's picture whole, as on a 3:2 screen - bars at its sides on a wider one"
+                                   : "The field's picture widened to fill a wide screen - its top and bottom cut",
+                        true, [&s](int) { s.wholeMap = !s.wholeMap; }});
         rows.push_back({"Swap \u25cb and \u00d7", onOff(s.padSwap),
                         s.padSwap ? "A controller's \u00d7 (the bottom button) confirms, \u25cb (the right one) goes back"
                                   : "A controller's \u25cb (the right button) confirms, \u00d7 (the bottom one) goes back - as on the Vita",
@@ -2616,7 +2624,9 @@ struct Viewer {
         dev->sceneSize(fw, fh, rw, rh);
         const float kx = float(rw) / float(fw), ky = float(rh) / float(fh);
         dev->setViewport(frameX * kx, frameY * ky, frameW * kx, frameH * ky);
+        sceneKx = kx, sceneKy = ky;
     }
+    float sceneKx = 1, sceneKy = 1; // (the scene's pixels a frame pixel)
 
     void drawScene(int w, int h) {
         // (the staff roll: its figure over black, in the interface's pass; the title - and the frame
@@ -2631,6 +2641,18 @@ struct Viewer {
             return;
         }
         if (fieldMode) {
+            // (Whole Map: the field drawn 3:2 in the frame's middle, the bars black; its scene's
+            // projection - the balloons', the marks' places - squeezed to match)
+            const int fullW = w;
+            if (settings.wholeMap && w * 2 > h * 3) {
+                w = std::max(h * 3 / 2, 1);
+                dev->setViewport((float(frameX) + float(fullW - w) * 0.5f) * sceneKx, float(frameY) * sceneKy, float(w) * sceneKx, float(frameH) * sceneKy);
+            }
+            struct ViewportBack {
+                Viewer* v;
+                bool on;
+                ~ViewportBack() { if (on) v->dev->setViewport(v->frameX * v->sceneKx, v->frameY * v->sceneKy, v->frameW * v->sceneKx, v->frameH * v->sceneKy); }
+            } viewportBack{this, w != fullW};
             // FldMain's order: the background (and midground), the 3D figures, the foreground
             // the scroll: following the leader, else the script's camera (a slide drawn on between updates)
             cr2::FieldFrame fr;
@@ -2654,6 +2676,10 @@ struct Viewer {
             camW = w, camH = h;
             if (script) script->setShownScroll(-fr.scroll[0] / (float(w) / 960.0f), -fr.scroll[1] / (float(w) / 960.0f));
             fieldScene = fr.scene;
+            if (w != fullW) { // (clip x over the whole frame, as the interface takes it)
+                const float k = float(w) / float(fullW);
+                for (int c = 0; c < 4; ++c) fieldScene[size_t(c * 4)] *= k;
+            }
             dev->setCamera(fr.zNear, fr.zFar, fr.fovY * 3.14159265f / 180);
             cr2::SceneLighting l = field.lighting();
             std::memcpy(l.camera, fr.camera, sizeof l.camera);
